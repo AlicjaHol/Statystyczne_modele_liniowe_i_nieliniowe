@@ -1,0 +1,176 @@
+---
+title: "Regresja wieloraka"
+author: "Alicja Hołowiecka"
+date: "22 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+
+## Dane
+
+Będziemy korzystać z danych `LifeCycleSavings`. W tym zbiorze danych mamy 5 zmiennych:
+
+- `sr` średnie oszczędności na osobę (to będzie nasza zmienna zależna)
+
+- `pop15` liczba osób poniżej 15 roku życia (w %)
+
+- `pop75` liczba osób powyżej 75 roku życia (w %)
+
+-`dpi` dochód rozporządzalny brutto na gospodarstwo domowe
+
+- `ddpi` przyrost `dpi` (w %)
+
+```{r podgląd danych}
+head(LifeCycleSavings)
+```
+
+
+Celem budowy modelu jest odkrycie, które zmienne wpływają istotnie na poziom oszczędności.
+
+## Macierz korelacji
+
+Do sprawdzenia, jakie zmienne włączyć do modelu, użyjemy macierzy korelacji.
+
+```{r macierz korelacji}
+library(ggcorrplot)
+r <- cor(LifeCycleSavings)
+p <- cor_pmat(LifeCycleSavings)
+ggcorrplot(r, lab = T, p.mat = p)
+```
+
+Ze zmienną `sr` najmocniej skorelowana jest `pop15`, następnie `pop75`, potem `ddpi`. Korelacja zmiennych `sr` oraz `dpi` jest nieistotna statystycznie.
+
+Widać, że zmienne `pop15` i `pop75` są bardzo silnie skorelowane ze sobą (-0.91), być może później zaskutkuje to nadmiarowością.
+
+## Budowa modelu wstępującego
+
+Będziemy budować model wstępujący, więc zaczniemy od modelu pustego (jedynie z wyrazem wolnym).
+
+```{r mod0}
+mod0 <- lm(sr ~ 1, data = LifeCycleSavings)
+```
+
+Następnie do modelu włączamy zmienną najsilniej skorelowaną ze zmienną zależną, czyli `pop15`
+
+```{r mod1}
+mod1 <- update(mod0, .~.+pop15, data = LifeCycleSavings)
+```
+
+Testujemy modele za pomocą ANOVY, ponieważ są zagnieżdżone.
+
+```{r anova01}
+anova(mod0, mod1)
+```
+
+Modele istotnie różnią się od siebie, zatem lepszy jest model, który zawiera więcej zmiennych, czyli `mod1`.
+
+```{r summary1}
+summary(mod1)
+```
+
+Nasz model ma teraz postać `sr` = 17.5-0.22 `pop15`, wszystkie współczynniki są istotne statystycznie, $R^2$ to około 21%, błąd standardowy 4.03, co w odniesieniu do średniej `sr` daje zmienność około 42%, czyli przeciętną.
+
+W kolejnym kroku dodajemy zmienną `pop75`.
+
+```{r mod2}
+mod2 <- update(mod1, .~.+pop75, data = LifeCycleSavings)
+
+```
+
+Test ANOVA
+
+```{r anova12}
+anova(mod1, mod2)
+```
+
+Na poziomie istotności 0.05 modele nie różnią się istotnie od siebie. W takim przypadku lepszy jest model prostszy, czyli `mod1` (bez zmiennej `pop75`). Sprawdzimy nadmiarowość zmiennych `pop15` i `pop75`.
+
+```{r nadmiarowosc}
+library(car)
+vif(mod2)
+```
+
+Z macierzy korelacji oraz wyniku funkcji `vif` wnioskujemy, że należy usunąć zmienną `pop75` z modelu.
+
+W takim razie wracamy do modelu `mod1` i to do niego dodajemy kolejną zmienną, czyli `ddpi`.
+
+```{r mod3}
+mod3 <- update(mod1, .~.+ddpi, data = LifeCycleSavings)
+```
+
+Test ANOVA:
+
+```{r anova 13}
+anova(mod3, mod1)
+```
+
+Modele istotnie różnią się od siebie, zatem lepszy jest model pełniejszy (`mod3`).
+
+W ostatnim kroku dodamy zmienną `dpi`
+
+```{r mod4}
+mod4 <- update(mod3, .~.+dpi, data = LifeCycleSavings)
+summary(mod4)
+```
+
+Zmienna `dpi` jest nieistotna statystycznie, a po jej dodaniu do modelu także `ddpi` stało się nieistotne.
+
+Testujemy ANOVĄ:
+
+```{r anova34}
+anova(mod4, mod3)
+```
+
+Modele nie różnią się istotnie, zatem wybieramy model prostszy `mod3`.
+
+Zatem ostateczny model, który otrzymaliśmy tą metodą, to `mod3`, czyli 
+
+$$sr = 15.6-0.22pop15+0.44ddpi$$
+
+Interpretacja współczynników:
+
+- kiedy `pop15` wzrośnie o 1, a `ddpi` się nie zmieni, to `sr` zmaleje o 0.22
+
+- kiedy `ddpi` wzrośnie o 1, a `pop15` się nie zmieni, to `sr` wzrośnie o 0.44
+
+## Budowa modelu zstępującego
+
+Tym razem zaczniemy od modelu pełnego.
+
+```{r model pełny}
+mod_full <- lm(sr~., data = LifeCycleSavings)
+summary(mod_full)
+```
+
+Współczynniki przy `pop75` i `dpi` są nieistotne statystycznie. Największe p-value występuje przy zmiennej `dpi`, dlatego tą zmienną usuniemy jako pierwszą.
+
+```{r model bez dpi}
+mod_bez_dpi <- update(mod_full, .~.-dpi, data = LifeCycleSavings)
+anova(mod_full, mod_bez_dpi)
+summary(mod_bez_dpi)
+vif(mod_bez_dpi)
+```
+
+Z testu ANOVA widzimy, że lepszy jest model bez `dpi`.
+
+Z podsumowania modelu widzimy, że współczynnik `pop75` ma p-valu około 0.07, więc na przyjętym przez nas poziomie istotności (0.05) jest nieistotny statystycznie. W dodatku z funkcji `vif` widzimy, że ta zmienna powoduje nadmiarowość ze zmienną `pop15`.
+
+```{r model bez dpi i pop75}
+mod <- update(mod_bez_dpi, .~.-pop75, data = LifeCycleSavings)
+summary(mod)
+```
+
+Ostatecznie do modelu weszły te same zmienne co przy budowie w sposób wstępujący.
+
+Otrzymaliśmy model:
+
+$$sr = 15.6-0.22 pop15 +0.44 ddpi$$
+
+a więc dokładnie taki sam jak poprzednio.
+

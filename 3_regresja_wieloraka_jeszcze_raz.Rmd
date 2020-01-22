@@ -1,0 +1,156 @@
+---
+title: "Regresja wieloraka jeszcze raz"
+author: "Alicja Hołowiecka"
+date: "22 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+```{r biblioteki}
+library(kableExtra)
+library(ggcorrplot)
+```
+
+
+## Dane
+
+
+Będziemy korzystać z danych `swiss`. Naszym celem jest sprawdzenie, które zmienne mają istotny wpływ na płodność (`Fertility`)
+
+```{r head}
+kable(head(swiss))
+```
+
+Mamy następujące potencjalne zmienne objaśniające:
+
+- `Agriculture` procent mężczyzn pracujących w rolnictwie
+
+- `Examination` procent rekrutów, którzy dostali najwyższą kategorię wojskową
+
+- `Education` procent rekrutów z wykształceniem powyżej podsatwowego
+
+- `Catholic` procent katolików (w porównaniu z protestantami)
+
+- `Infant.Mortality` żywo urodzone dzieci, które umierały przed ukończeniem pierwszego roku życia
+
+## Macierz korelacji
+
+```{r macierz korelacji}
+r <- cor(swiss)
+p <- cor_pmat(swiss)
+ggcorrplot(r, lab = T, p.mat = p)
+```
+
+## Model wstępujący
+
+```{r mod0}
+mod0 <- lm(Fertility~1, data = swiss)
+```
+
+Najmocniej skorelowana z `Fertility` jest zmienna `Education`, zatem ją włączamy do modelu.
+
+```{r mod1}
+mod1 <- update(mod0, .~.+Education, data = swiss)
+anova(mod0, mod1)
+summary(mod1)
+```
+
+Z testu ANOVA stwierdzamy, że `mod1` jest lepszy niż `mod0`.
+
+Kolejną zmienną, którą dodajemy, jest `Examination`
+
+```{r mod2}
+mod2 <- update(mod1, .~.+Examination, data = swiss)
+anova(mod1, mod2)
+summary(mod2)
+```
+
+Z testu ANOVA widzimy, że `mod2` różni się istotnie od `mod1`. Wszystkie zmienne są istotne statystycznie.
+
+Jako kolejną zmienną dodajemy `Catholic`.
+
+```{r mod3}
+mod3 <- update(mod2, .~.+Catholic)
+anova(mod2, mod3)
+summary(mod3)
+car::vif(mod3)
+```
+
+Modele różnią się istotnie. Jednakże, po dodaniu zmiennej `Catholic`, zmienna `Examination` przestaje być istotna statystycznie. Z testu `vif` nie widać nadmiarowości. Z macierzy korelacji widzimy, że `Education` jest silnie skorelowane z `Examination` (0.7), być może to powoduje nadmiarowość.
+
+Tworzymy model z `Catholic` oraz `Education`
+
+
+```{r mod4}
+mod4 <- update(mod3, .~.-Examination, data = swiss)
+summary(mod4)
+```
+
+Model z `Catholic` i `Education` ma $R^2$ około 57%, a model z `Examination` i `Education` około 51%, zatem wybierzemy model z `Catholic` i `Education` (czyli `mod4`).
+
+Teraz do tego modelu dodamy zmienną `Infant.Mortality`.
+
+```{r mod5}
+mod5 <- update(mod4, .~.+Infant.Mortality, data = swiss)
+anova(mod4, mod5)
+summary(mod5)
+```
+
+Modele istotnie różnią się od siebie. W modelu `mod5` wszystkie zmienne są istotne.
+
+Jako ostatnią zmienną dodajemy `Agriculture`.
+
+```{r mod6}
+mod6 <- update(mod5, .~.+Agriculture, data = swiss)
+anova(mod5, mod6)
+summary(mod6)
+```
+
+Modele istotnie różnią się od siebie, a w nowym modelu wszystkie zmienne są istotne statystycznie.
+
+Sprawdzimy jeszcze raz, jak wpłynie na model dodanie `Examination`.
+
+```{r mod7}
+mod7 <- update(mod6, .~.+Examination, data = swiss)
+anova(mod6, mod7)
+summary(mod7)
+```
+
+Dodanie `Examination` nie poprawia modelu, zatem ostatecznym modelem jest `mod6`.
+
+## Budowanie modelu za pomocą "regsubsets"
+
+```{r regsubsets}
+library(leaps)
+reg <- regsubsets(Fertility~., data = swiss, method = "forward")
+summary(reg)
+```
+
+Zbudujemy modele zgodnie z kolejnością podpowiadaną przez `regsubsets`.
+
+```{r modele z reg, results = 'asis'}
+mod1 <- lm(Fertility~Education, data = swiss)
+mod2 <- update(mod1, .~.+Catholic, data = swiss)
+mod3 <- update(mod2, .~.+Infant.Mortality, data = swiss)
+mod4 <- update(mod3, .~.+Agriculture, data = swiss)
+mod5 <- update(mod4, .~.+Examination, data = swiss)
+stargazer::stargazer(mod1, mod2, mod3, mod4, mod5, type = "html")
+```
+
+
+Jako najlepszy wybieramy model `mod4` (w modelu `mod5` zmienna `Examination` jest nieistotna statystycznie).
+
+## Budowanie modelu za pomocą "step"
+
+```{r step}
+mod_step <- step(lm(Fertility~1, data = swiss), 
+                 scope = ~Examination+Education+Catholic+Agriculture+Infant.Mortality,
+                  direction = "forward", test = "F")
+```
+
+Funkcja `step` wybrała taki sam model, jaki uzyskaliśmy dwoma poprzednimi metodami.

@@ -1,0 +1,85 @@
+---
+title: "Pierwszy model regresji"
+author: "Alicja Hołowiecka"
+date: "22 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning =F, message = F, dev = "cairo_pdf")
+```
+
+```{r pakiety}
+library(stargazer)
+library(tidyverse)
+library(kableExtra)
+library(ggplot2)
+```
+
+```{r}
+library(pander)
+panderOptions('round', 3)
+panderOptions('keep.trailing.zeros', T)
+```
+
+
+## Model regresji
+
+Skorzystamy z danych `mtcars`. Budujemy model regresji liniowej:
+
+```{r regresja liniowa mtcars}
+mod <- lm(mpg ~ wt, data = mtcars)
+```
+
+Wyświetlimy współczynniki modelu:
+
+```{r współczynniki modelu}
+mod
+```
+
+oraz jego podsumowanie:
+
+```{r podsumowanie modelu}
+summary(mod)
+```
+
+### Interpretacja
+
+- Estymowany model jest postaci:
+
+$$mpg = \beta_0+\beta_1 \cdot wt + \varepsilon$$
+
+gdzie `mpg` oznacza spalanie auta (miles per gallon), a `wt` jego wagę
+
+- Próbkowy błąd estymacji (`s`) wynosi 3.046.
+
+```{r zmiennosc}
+zmiennosc <-  summary(mod)$sigma/mean(mtcars$mpg)
+```
+
+Porównując błąd do średniej, otrzymujemy, że zmienność modelu wynosi około 15%, a więc jest mała.
+
+- Statystyka testu F (testu Chowa) wynosi 91.38, a p-value z tego testu to $1.294 \cdot 10^{-10}$.
+
+Test F testuje hipotezę, że współczynniki $\beta_i$ (oprócz wyrazu wolnego) są wszystkie równe zero. Ze względu na małe p-value odrzucamy tą hipotezę, co w naszym przypadku oznacza, że $\beta_1 \neq 0$ (hipotezy testujemy na poziomie istotności 0.05).
+
+- Test t testuje hipotezę $\beta_i = 0$ dla konkretnego $i$. W naszym przypadku zarówno wyraz wolny, jak i współczynnik przy `wt` są istotnie różne od zera.
+
+- Wyraz wolny wynosi około 37.29. Możemy go interpretować tak, że gdyby samochód miał masę zero, to tyle by spalał. Błąd tego estymatora wynosi około 1.88.
+
+- Współczynnik przy `wt` ma wartość -5.34, co oznacza, że jeżeli waga wzrośnie o 1, to `mpg` zmaleje o -5.34. Błąd tego estymatora wynosi około 0.56.
+
+- Współczynnik determinacji $R^2$ wynosi około 75%, a poprawiony $R^2$ około 74%, więc niewiele się różni od zwykłego $R^2$. Oznacza to, że około 75% zmienności zmiennej zależnej `mpg` jest wyjaśniana przez model.
+
+### Wykres
+
+Na wykresie zaznaczymy poszczególne obserwacje i dorysujemy linię regresji.
+
+```{r wykres}
+ggplot(data = mtcars, aes(x = wt, y = mpg))+
+  geom_point()+
+  geom_smooth(method = lm, se = F)
+```
+

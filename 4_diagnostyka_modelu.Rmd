@@ -1,0 +1,220 @@
+---
+title: "Diagnostyka modelu"
+author: "Alicja Hołowiecka"
+date: "23 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+## Dane
+
+Będziemy korzystać z danych `surgical` z pakietu `olsrr`.
+
+```{r wczytanie danych}
+library(olsrr)
+head(surgical)
+```
+
+
+Mamy następujące zmienne:
+
+- `bcs` krzepliwość krwi
+
+- `pindex` indeks prognostyczny
+
+- `enzyme_test` wynik badania enzymów
+
+- `liver_test` wynik badania wątroby
+
+- `age` wiek w latach
+
+- `gender` płeć (0-mężczyzna, 1-kobieta)
+
+- `alc_mod` wskaźnik nadużywania alkoholu (0-brak, 1-przeciętne)
+
+- `alc_heavy` wskaźnik silnego nadużywania alkoholu (0-brak, 1-silne)
+
+- `y` czas przeżycia (zmienna zależna)
+
+## Oczyszczanie danych
+
+```{r struktura}
+str(surgical)
+```
+
+Zmienne `gender`, `alc_heavy` i `alc_mod` mają typ `int`, a są to zmienne kategoryzujące, więc zmienimy typ na `factor`.
+
+```{r factory}
+surgical$alc_heavy <- as.factor(surgical$alc_heavy)
+surgical$alc_mod <- as.factor(surgical$alc_mod)
+surgical$gender <- as.factor(surgical$gender)
+str(surgical)
+```
+
+## Budowa modelu
+
+```{r step}
+mod_null <- lm(y~1, data = surgical)
+mod <- step(mod_null, scope = ~bcs+pindex+enzyme_test+liver_test+age+gender+alc_mod+alc_heavy, 
+            direction = "both", test = "F")
+```
+
+Funkcja `step` zwróciła model
+$$y \sim liver\_test + alc\_heavy + enzyme\_test+pindex+bcs$$
+```{r summary}
+summary(mod)
+```
+
+## Diagnostyka modelu
+
+Wykonamy diagnostykę modelu, sprawdzenie założeń (twierdzenie Gaussa-Markova).
+
+### Wykresy diagnostyczne
+
+```{r wykresy diagnostyczne}
+plot(mod)
+```
+
+Na wykresie `Residuals vs Fitted` widać wyraźny "uśmiech". Być może występuje korelacja reszt.
+
+Na wykresie `Q-Q` widać jedną obserwację wyraźnie odstającą od rozkładu normalnego (nr 5), jest też kilka obserwacji na końcu i na początku, które nie przylegają do linii kwantylowej, ale w stosunku do wszystkich obserwacji (54) nie jest ich dużo.
+
+Z wykresu `Scale-Location` nie widać heterogeniczności wariancji.
+
+Na wykresie `Residuals vs Leverage` widać, że obserwacja 5 jest odstająca. Sprawdzimy, czy jest `bad leverage`.
+
+```{r obserwacja odstająca}
+plot(mod, which = 5)
+n <- nrow(surgical)
+abline(h = c(-2,2), lty = 2)
+abline(v = 2*(5+1)/n, lty = 3)
+```
+
+Obserwacja nr 5 jest odstająca, ale nie uznajemy jej za `bad leverage`. Obserwacja nr 28 jest `good leverage`.
+
+
+Sprawdzimy odległości Cooka dla obserwacji.
+
+```{r cooks dist}
+cooks.distance(mod)
+cooks.distance(mod)[5]
+plot(mod, which = 4)
+influence.measures(mod)
+```
+
+Obserwacja nr 5 ma wyraźnie większy Cook's Distance niż pozostałe. Podobnie jest z miarą `dffit`.
+
+Ta obserwacja jest odstająca i wpływowa, w związku z czym usuwamy ją ze zbioru danych.
+
+```{r model bez 5}
+mod_null <- lm(y~1, data = surgical, subset = rownames(surgical)!=5)
+mod <- step(mod_null, scope = ~bcs+pindex+enzyme_test+liver_test+age+gender+alc_mod+alc_heavy, 
+            direction = "both", test = "F")
+summary(mod)
+plot(mod, which = 1:6)
+```
+
+Znowu widzimy "uśmiech" na `Residuals vs Fitted`.
+
+Obserwacja 28 ma największy Cook's Distance, a z `Residuals vs Leverage` wnioskujemy, że obserwacja 28 jest `bad leverage`.
+
+Tą obserwację także usuwamy z modelu.
+
+```{r model bez 5 i 28}
+mod_null <- lm(y~1, data = surgical, subset = rownames(surgical)!=c(5, 28))
+mod <- step(mod_null, scope = ~bcs+pindex+enzyme_test+liver_test+age+gender+alc_mod+alc_heavy, 
+            direction = "both", test = "F")
+summary(mod)
+plot(mod, which = 1:6)
+```
+
+Otrzymaliśmy model
+
+$$y \sim liver\_test+enzyme\_test+pindex+alc\_heavy$$
+w którym wszystkie zmienne są istotne.
+
+Na wykresie `Residuals vs Fitted` zakrzywienie czerwonej linii jest mniej znaczne niż poprzednio.
+
+Na `Q-Q` większe odchyłki od normalności niż poprzednio.
+
+Na `Scale-Location` widać zakrzywienie, które może wskazywać na heterogeniczność wariancji.
+
+Z wykresów widać, że nie ma już więcej obserwacji odstających i wpływowych.
+
+### Testy normalności na resztach
+
+$H_0$: normalność
+
+```{r normalność}
+shapiro.test(residuals(mod))
+```
+
+P-value z testu Shapiro-Wilka około 0.82, nie ma podstaw do odrzucenia hipotezy o normalności rozkładu reszt.
+
+### Testy na heterogeniczność wariancji
+
+$H_0:$ jednorodność wariancji
+
+```{r jednorodność}
+library(lmtest)
+bptest(mod)
+gqtest(mod, order.by = ~fitted(mod))
+hmctest(mod, order.by = ~fitted(mod))
+```
+
+ P-value: 
+ 
+ - Breusch-Pagan: 0.08
+ 
+ - Goldfeld-Quandt: 0.03
+ 
+ - Harrison-McCabe: 0.02
+ 
+Na podstawie powyższych testów wnioskujemy o odrzuceniu hipotezy zerowej na korzyść hipotezy alternatywnej, czyli mamy heterogeniczność wariancji.
+
+### Testy na autokorelację
+
+$H_0:$ brak autokorelacji
+
+```{r autokorelacja}
+dwtest(mod, order.by=~fitted(mod))
+bgtest(mod, order.by = ~fitted(mod), order = 3)
+```
+
+P-value:
+
+- Durbin-Watson: 0.71
+
+- Breusch-Godfrey: 0.46
+
+Nie ma podstaw do odrzucenia hipotezy zerowej. Reszty nie są skorelowane.
+
+### Testy liniowej postaci modelu
+
+$H_0:$ postać zależności jest liniowa
+
+```{r liniowość}
+resettest(mod, power = 3, type = "regressor")
+raintest(mod, order.by = ~fitted(mod))
+```
+
+P-value:
+
+- RESET: 0.59
+
+- Rainbow: 0.69
+
+Nie ma podstaw do odrzucenia hipotezy $H_0$. Postać zależności jest liniowa.
+
+## Podsumowanie
+
+Po usunięciu obserwacji odstajacych i wpływowych 5 i 28 otrzymaliśmy model:
+
+$$y \sim liver\_test+ enzyme\_test+pindex + alc\_heavy$$
+Wszystkie zmienne oraz wyraz wolny są istotne statystycznie. Założenia są spełnione, oprócz jednorodności wariancji.
+

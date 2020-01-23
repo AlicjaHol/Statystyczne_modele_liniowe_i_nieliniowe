@@ -1,0 +1,177 @@
+---
+title: "Transformacja zmiennych"
+author: "Alicja Hołowiecka"
+date: "23 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+## Dane
+
+Będziemy korzystać z danych `Prestige` z pakietu `alr3`. Zbudujemy model zależności pomiędzy `income` i `prestige`.
+
+```{r biblioteki}
+library(alr3)
+library(tidyverse)
+library(lmtest)
+```
+
+```{r dane}
+head(Prestige)
+```
+
+## Wykres
+
+
+```{r regresja liniowa i nieparametryczna}
+Prestige %>%
+  ggplot(aes(x = income, y = prestige))+
+  geom_point()+
+  geom_smooth(se =F)+
+  geom_smooth(method =lm, color = "red", se = F)
+```
+
+Z wykresu widać, że regresja liniowa nie najlepiej dopasowuje się do danych.
+
+## Model liniowy
+
+```{r model liniowy}
+mod <- lm(prestige~income, data = Prestige)
+summary(mod)
+```
+
+### Diagnostyka modelu liniowego
+
+```{r wykresy diagnostyczne}
+plot(mod)
+```
+
+- być może autokorelacja reszt
+
+- trochę odstaje od rozkładu normalnego
+
+- heterogeniczności chyba nie widać
+
+- są obserwacje odstające, ale może to być wina złego dopasowania modelu, a nie samych obserwacji
+
+```{r normalność}
+shapiro.test(residuals(mod))
+```
+
+Odrzucamy założenie o normalności rozkładu reszt.
+
+```{r autokorelacja}
+dwtest(mod, order.by = ~fitted(mod))
+bgtest(mod, order.by = ~fitted(mod), order = 3)
+```
+
+Nie ma podstaw do odrzucenia hipotezy o braku autokorelacji reszt.
+
+```{r heterogeniczność}
+bptest(mod)
+hmctest(mod, order.by = ~fitted(mod))
+gqtest(mod, order.by = ~fitted(mod))
+```
+
+Nie ma podstaw do odrzucenia hipotezy o jednorodności wariancji.
+
+```{r liniowość}
+resettest(mod, power =3, type = "regressor")
+raintest(mod, order.by = ~fitted(mod))
+```
+
+Z testu Rainbow nie ma podstaw do odrzucenia hipotezy o liniowej zależności między zmiennymi, ale test RESET stanowczo tą hipotezę odrzuca. Spróbujemy dokonać transformacji zmiennych.
+
+## Transformacja zmiennych
+
+```{r inverse}
+inverseResponsePlot(mod)
+```
+
+`InverseResponsePlot` proponuje przekształcenie potęgą 2.7.
+
+```{r  power transform}
+summary(powerTransform(cbind(income)~1, data = Prestige))
+summary(powerTransform(cbind(income, prestige)~1, data = Prestige))
+```
+
+`powerTransform` proponuje podniesienie `income` do potęgi 1/5, a prestige do potęgi 0.45.
+
+Spróbujemy przekształcenia proponowanego przez `inverseResponsePlot`, w zaokrągleniu przyjmując 3 zamiast 2.7.
+
+```{r model po tranformacji}
+mod2 <- lm(I(prestige^3)~income, data = Prestige)
+summary(mod2)
+Prestige %>%
+  ggplot(aes(x = income, y = prestige^3))+
+  geom_point()+
+  geom_smooth(method =lm, se = F)
+```
+
+Oraz model proponowany przez `powerTransform`, przyjmując potęgi odpowiednio 1/5 i 1/2.
+
+```{r mod3}
+mod3 <- lm(sqrt(prestige)~I(income^0.2), data = Prestige)
+summary(mod3)
+Prestige%>%
+  ggplot(aes(x = income^0.2, y = sqrt(prestige)))+
+  geom_point()+
+  geom_smooth(method=lm, se = F)
+```
+
+Drugi model wydaje się najlepiej dopasowany do danych. Zbadamy dopasowanie obu modeli odpowiednimi testami.
+
+### mod2
+
+```{r testy mod2}
+shapiro.test(residuals(mod2))
+bptest(mod2)
+gqtest(mod2, order.by = ~fitted(mod2))
+dwtest(mod2, order.by = ~fitted(mod2))
+bgtest(mod2, order.by = ~fitted(mod2))
+```
+
+Odrzucamy hipotezy o normalności rozkładu reszt oraz o jednorodności wariancji. Nie ma podstaw do odrzucenia hipotezy o braku autokorelacji.
+
+### mod3
+
+```{r testy mod3}
+shapiro.test(residuals(mod3))
+bptest(mod3)
+gqtest(mod3, order.by = ~fitted(mod3))
+dwtest(mod3, order.by = ~fitted(mod3))
+bgtest(mod3, order.by = ~fitted(mod3))
+dwtest(mod3, order.by = ~fitted(mod3))
+gqtest(mod3, order.by = ~fitted(mod3))
+resettest(mod3, power = 3, type = "regressor")
+raintest(mod3, order.by = ~fitted(mod3))
+```
+
+W przypadku modelu `mod3` mamy zarówno normalność, jak i jednorodność wariancji. Nie zachodzi autokorelacja.
+Zależność między transformowanymi zmiennymi jest liniowa.
+
+## Predykcja
+
+Przeprowadzimy predykcję z modelu `mod3` dla `income = 7000`
+
+```{r predykcja}
+predykcja <- predict(mod3, newdata = data.frame(income = 7000),
+                     interval = "confidence") #przedział ufności dla regresji
+predykcja2 <- predict(mod3, newdata = data.frame(income = 7000),
+                     interval = "prediction") #przedział ufności dla predykcji
+
+```
+
+Należy pamiętać, że zmienne były transformowane. Skoro w modelu mieliśmy $\sqrt{prestige}$, to weźmiemy teraz $predykcja^2$
+
+```{r transformacja predykcji}
+predykcja^2
+predykcja2^2
+```
+
+Predykcja dla `income=7000` wynosi około 49.

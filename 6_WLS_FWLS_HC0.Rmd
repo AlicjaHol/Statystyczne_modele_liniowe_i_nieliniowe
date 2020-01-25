@@ -1,0 +1,195 @@
+---
+title: "Ważona metoda najmniejszych kwadratów"
+author: "Alicja Hołowiecka"
+date: "25 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message= F, warning = F)
+```
+
+## Dane
+
+Będziemy korzystać z danych `cleaningwtd.txt`
+
+```{r dane}
+dane <- read.csv(file = 'cleaningwtd.txt', sep = "\t", header = T)
+head(dane)
+```
+
+Mamy następujące kolumny:
+
+- `Case` - ID przypadku
+
+- `Crews` - liczba osób w ekipie
+
+- `Rooms` - liczba posprzątanych pokojów
+
+- `StdDev` odchylenie standardowe
+
+Zbudujemy model zależności `Rooms` od `Crews`.
+
+```{r biblioteki}
+library(lmtest)
+library(tidyverse)
+
+```
+
+
+## Model liniowy OLS
+
+
+
+```{r}
+dane %>%
+  ggplot(aes(x = Crews, y = Rooms))+
+  geom_point()+
+  geom_smooth(method = lm, se = F)
+```
+
+
+```{r mod ols}
+mod_ols <- lm(Rooms~Crews, data = dane)
+summary(mod_ols)
+```
+
+
+### Diagnostyka
+
+```{r wykresy ols}
+plot(mod_ols)
+```
+
+- `Residuals vs Fitted` być może rozszerzanie wariancji
+
+- `Q-Q` trochę się odchyla od normalnego
+
+- na `Scale-Location` wyraźna tendencja wzrostowa
+
+
+```{r norm ols}
+shapiro.test(residuals(mod_ols))
+```
+
+Nie ma podstaw do odrzucenia hipotezy o normalności rozkładu reszt
+
+```{r hetero ols}
+library(lmtest)
+bptest(mod_ols)
+gqtest(mod_ols, order.by = ~fitted(mod_ols))
+hmctest(mod_ols, order.by = ~fitted(mod_ols))
+```
+
+We wszystkich trzech testach p-value jest bardzo bliskie zero, odrzucamy hipotezę o jednorodności wariancji.
+
+```{r autokor ols}
+dwtest(mod_ols, order.by = ~fitted(mod_ols))
+bgtest(mod_ols, order.by = ~fitted(mod_ols), order=3)
+```
+
+Nie ma podstaw do odrzucenia hipotezy o braku autokorelacji reszt.
+
+```{r liniowość ols}
+raintest(mod_ols, order.by = ~fitted(mod_ols))
+resettest(mod_ols, power =3, type = "regressor")
+```
+
+Nie ma podstaw do odrzucenia hipotezy o liniowej postaci zależności.
+
+Jedynym problemem modelu jest heterogeniczność wariancji.
+
+Spróbujemy to naprawić, budując model przy pomocy metody ważonej najmniejszych kwadratów (WLS).
+
+## Model WLS
+
+Jako wagę przyjmiemy `1/StdDev`.
+
+```{r model wls}
+mod_wls <- lm(Rooms~Crews, data = dane, weights = 1/StdDev)
+summary(mod_wls)
+library(car)
+ncvTest(mod_wls)
+```
+Te wagi nie są wystarczające, nadal mamy heterogeniczność.
+
+Przyjmujemy wagi `1/StdDev^2`
+
+```{r}
+mod_wls2 <- lm(Rooms~Crews, data = dane, weights = 1/StdDev^2)
+summary(mod_wls2)
+ncvTest(mod_wls2)
+
+```
+
+
+
+```{r}
+plot(mod_wls2)
+```
+
+Na `Residuals vs Fitted` nadal widać lekkie rozszerzanie, na `Scale-Location` mamy linię poziomą. Z testu `ncvTest` nie mamy podstaw do odrzucenia hipotezy o jednorodności wariancji.
+
+Zgasiliśmy heterogeniczność wariancji.
+
+Spróbujemy też pozbyć się heterogeniczności przy pomocy `FWLS` (Feasible Weighted Least Squares).
+
+### Model FWLS
+
+Kolejne etapy metody `FWLS`:
+
+1. Budujemy model `OLS` (my już taki mamy, `mod_ols`).
+
+2. Budujemy model pomocniczy reszt
+
+```{r}
+reszty <- resid(mod_ols)
+mod_pomocniczy <- lm(log(reszty^2)~Crews, data = dane)
+```
+
+3. Wyznaczamy wagi
+
+```{r}
+odp_modelu <- fitted.values(mod_pomocniczy)
+h <- exp(odp_modelu)
+```
+
+4. Budujemy model `WLS` z wyznaczonymi wagami.
+
+```{r}
+mod_fwls <- lm(Rooms~Crews, data = dane, weights = 1/h)
+```
+
+```{r}
+summary(mod_fwls)
+```
+
+```{r}
+ncvTest(mod_fwls)
+plot(mod_fwls)
+```
+
+Model `FWLS` także likwiduje heterogeniczność.
+
+## Odporne oszacowania błędów
+
+W przypadku heterogeniczności można utworzyć model OLS, ale z poprawkami na oszacowania błędów. Są to poprawki White'a.
+
+```{r}
+white_est <-  hccm(mod_ols, type = "hc0")
+mod_hc0 <- coeftest(mod_ols, vcov = white_est)
+mod_hc0
+```
+
+## Porównanie modeli
+
+```{r}
+library(stargazer)
+```
+
+```{r results = 'asis'}
+stargazer(mod_ols, mod_wls2, mod_fwls, mod_hc0, header = F, type = "html", column.labels = c("OLS", "WLS", "FWLS", "HC0"))
+```
+

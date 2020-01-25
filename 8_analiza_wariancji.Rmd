@@ -1,0 +1,154 @@
+---
+title: "Analiza wariancji"
+author: "Alicja Hołowiecka"
+date: "25 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+## Dane
+
+Będziemy korzystać z danych `breaking` z pakietu `faraway`.
+
+```{r}
+library(faraway)
+library(ggpubr)
+library(tidyverse)
+head(breaking)
+```
+
+Interesują nas zmienne:
+
+- `y` odporność elementu na łamanie
+
+- `operator` operator (poziomy `op1`, `op2`, `op3`, `op4`)
+
+- `supplier` dostawca (poziomy A, B, C, D)
+
+Sprawdzimy, czy istnieje wpływ operatora i/lub suppliera na y.
+
+## Wykresy
+
+### Operator
+
+```{r}
+breaking %>%
+  ggboxplot(x = 'operator', y = 'y', fill = 'operator', add='jitter')
+```
+
+```{r}
+breaking %>%
+  ggbarplot(x = 'operator', y='y', fill = 'operator', add = 'mean_ci')
+```
+
+```{r}
+breaking %>%
+  ggline(x = 'operator', y='y', add='mean_ci')
+```
+
+Z wykresów nie wygląda na to, żeby operator istotnie różnicował y.
+
+### Supplier
+
+```{r}
+breaking %>%
+  ggboxplot(x="supplier", y='y', fill = 'supplier', add = 'jitter')
+```
+
+```{r}
+breaking %>%
+  ggbarplot(x = 'supplier', y = 'y', fill = 'supplier', add = 'mean_ci')
+```
+
+```{r}
+breaking %>%
+  ggline(x = 'supplier', y='y', add = 'mean_ci')
+```
+
+Z wykresów można się domyślać, że supplier będzie istotnie różnicował y.
+
+## Sprawdzenie założeń analizy wariancji
+
+### Normalność
+
+```{r}
+breaking %>%
+  count(operator)
+breaking %>%
+  count(supplier)
+```
+
+Ze względu na małe liczebności w podgrupach nie sprawdzimy teraz założenia o normalności. Po zbudowaniu modelu sprawdzimy normalność reszt.
+
+### Jednorodność wariancji
+
+```{r}
+car::leveneTest(y ~operator, data = breaking)
+car::leveneTest(y~supplier, data = breaking)
+```
+
+W obu przypadkach test nie wskazuje na heterogeniczność.
+
+## Budowa modelu i test ANOVA
+
+```{r}
+mod <- aov(y~supplier*operator, data = breaking)
+summary(mod)
+```
+
+Ze względu na zbyt małe liczebności podgrup, nie da się zbudować modelu z efektem interakcji. Zbudujemy model z efektami brzegowymi.
+
+```{r}
+mod <- aov(y~supplier+operator, data = breaking)
+shapiro.test(residuals(mod))
+summary(mod)
+```
+
+Sprawdziliśmy założenie o normalności reszt - jest ono spełnione.
+
+Zmienna supplier istotnie różnicuje średni poziom zmiennej y.
+
+## Testy post-hoc
+
+Test ANOVA testował hipotezę
+
+$H_0: \mu_A = \mu_B = \mu_C = \mu_D$ (gdzie A, B, C, D to poziomy zmiennej supplier)
+
+Odrzuciliśmy tą hipotezę.
+
+Teraz możemy sprawdzić, między którymi grupami średnie się różnią.
+
+```{r}
+library(agricolae)
+```
+
+Mamy równoliczność podgrup, skorzystamy z testów HSD i SNK.
+
+```{r}
+HSD.test(mod, "supplier", console = T)
+```
+
+Z testu HSD dostaliśmy, że średnia jest identyczna w następujących grupach:
+
+- C i D
+
+- D i B
+
+- B i A
+
+```{r}
+SNK.test(mod, "supplier", console = T)
+```
+
+Z testu SNK dostaliśmy następujące grupy:
+
+- C i D
+
+- D i B
+
+- A

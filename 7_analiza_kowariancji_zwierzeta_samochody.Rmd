@@ -1,0 +1,177 @@
+---
+title: "Analiza kowariancji - długość snu zwierząt, spalanie w samochodach"
+author: "Alicja Hołowiecka"
+date: "25 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+# Zadanie 1
+
+## Dane
+
+Będziemy korzystać z danych `sleep1` z pakietu `alr3`.
+
+```{r}
+library(alr3)
+library(tidyverse)
+head(sleep1)
+```
+
+
+Z tego zbioru danych interesują nas następujace kolumny:
+
+- `TS` total sleep, liczba godzin, jakie zwierzę przesypia w ciągu doby
+
+- `BodyWt` masa ciała w kg
+
+- `D` wskaźnik tego, jak bardzo zwierzę czuje się zagrożone (1-mało, 5-bardzo)
+
+Zbudujemy model zależności `TS` od dwóch pozostałych zmiennych, wraz z efektem interakcji.
+
+```{r}
+str(sleep1)
+sum(is.na(sleep1$TS))
+sleep <- sleep1 %>%
+  filter(!is.na(TS))
+sleep$D <- as.factor(sleep$D)
+```
+
+```{r}
+sleep%>%
+ggplot(aes(TS))+
+  geom_histogram(bins = 10)
+```
+
+```{r}
+sleep %>%
+  ggplot(aes(BodyWt))+
+  geom_histogram(bins=10)
+```
+
+Dla wagi bardzo silna asymetria prawostronna. Spróbujemy przekształcenia logarytmicznego.
+
+```{r}
+sleep%>%
+  ggplot(aes(log(BodyWt)))+
+  geom_histogram(bins=10)
+```
+
+Teraz lepiej. Do modelu włączymy `log(BodyWt)` zamiast `BodyWt`.
+
+## Model z efektem interakcji
+
+```{r}
+mod <- aov(TS~log(BodyWt)*D, data = sleep)
+summary(mod)
+```
+
+Efekt interakcji jest nieistotny, zatem możemy go usunąć z modelu.
+
+```{r}
+mod <- update(mod, .~.-log(BodyWt):D, data = sleep)
+summary.lm(mod)
+```
+
+Widać, że poziom zmiennej `D` różnicuje średnie poziomy zmiennej `TS`.
+
+Grupa `D=1` jest grupą referencyjną. Wyraz wolny wynosi dla niej około 13.93.
+
+Przy przejściu z `D=1` do `D=2` należałoby zmienić wyraz wolny o -2.43.
+
+Przy przejściu z `D=1` do `D=3` o -3.58.
+
+Przy przejściu z `D=1` do `D=4` o -3.85.
+
+Przy przejściu z `D=1` do `D=5` o -7.29.
+
+Dla każdej grupy współczynnik kierunkowy wynosi tyle samo, czyli -0.63.
+
+```{r}
+mod1 <- update(mod, .~.-1)
+summary(mod1)
+```
+
+Powyżej wyświetlono wartość współczynnika kierunkowego, oraz wyraz wolny dla każdej z grup.
+
+
+```{r}
+library(broom)
+augment(mod)%>%
+  ggplot(aes(x = log.BodyWt., y = TS, color = D))+
+  geom_point()+
+  geom_smooth(aes(x = log.BodyWt., y = .fitted, color  =D), method = lm, se = F)
+
+```
+
+Równoległość linii jest spowodowana brakiem interakcji pomiędzy `log(BodyWt)` i `D`.
+
+# Zadanie 2
+
+## Dane
+
+Będziemy korzystać z danych `mtcars`.
+
+```{r}
+head(mtcars)
+```
+
+Interesują nas zmienne:
+
+- `mpg` miles per gallon, liczba mil przejechanych na 1 galonie paliwa
+
+- `hp` horse power, liczba koni mechanicznych
+
+- `cyl` liczba cylindrów
+
+```{r}
+str(mtcars)
+mtcars$cyl <- as.factor(mtcars$cyl)
+```
+
+
+## Model
+
+Budujemy model z interakcją
+
+$$mpg \sim hp + cyl + hp*cyl$$
+
+```{r}
+mod <- aov(mpg~hp*cyl, data = mtcars)
+summary(mod)
+```
+
+Efekt interakcji jest nieistotny.
+
+Zmienne `hp` oraz `cyl` są istotne.
+
+Średnie `mpg` są różne w grupach ze względu na poziom `cyl`.
+
+Usuwamy efekt interakcji.
+
+```{r}
+mod <- update(mod, .~.-hp:cyl)
+summary(mod)
+summary.lm(mod)
+```
+
+Współczynnik kierunkowy dla wszystkich grup to 28.65.
+
+Wyraz wolny w grupie `cyl=4` to -0.02 i jest nieistotny statystycznie.
+
+Dla grupy `cyl=6` należy się przesunąć z wyrazem wolnym o -5.97 w odniesieniu do grupy referencyjnej `cyl=4`.
+
+Dla grupy `cyl=8` należy się przesunąć z wyrazem wolnym o -8.52 w odniesieniu do grupy referencyjnej `cyl=4`.
+
+```{r}
+augment(mod)%>%
+  ggplot(aes(x = hp, y = mpg, color = cyl))+
+  geom_point()+
+  geom_smooth(aes(x=hp, y=.fitted, color = cyl), method = lm, se=F)
+```
+
+

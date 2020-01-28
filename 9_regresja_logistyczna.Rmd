@@ -1,0 +1,195 @@
+---
+title: "Regresja logistyczna"
+author: "Alicja Hołowiecka"
+date: "28 01 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+# Zadanie 1
+
+Wczytamy dane `College` z pakietu `ISLR`
+
+```{r}
+library(ISLR)
+data("College")
+head(College)
+str(College)
+College$Private <- as.numeric(College$Private)-1 #kodujemy yes jako 1 i no jako 0
+```
+
+Tworzymy model regresji logistycznej
+
+```{r}
+mod <- glm(Private~., data = College, family = binomial())
+summary(mod)
+```
+
+Istotne są zmienne:
+
+- `Apps` - liczba podań złożonych na daną uczelnię
+
+- `F.Undergrad` - liczba studentów stacjonarnych
+
+- `Outstate` - studenci spoza stanu
+
+- `PhD` - odsetek pracowników z doktoratem
+
+- `perc.alumni` - odsetek absolwentów wspierających finansowo uczelnię
+
+Null deviance (różnica między tym modelem a pustym) wyosni 910.75, a Residual Deviance (różnica między tym modelem a idealnym dopasowaniem do danych) wynosi 239.50. Na tej podstawie stwierdzamy, że model jest raczej dobrze dopasowany.
+
+Wpływ ograniczający mają zmienne : `Apps`, `F.Undergrad`, `PhD` (bo mają `Estimate` mniejszy od 0).
+
+Wpływ stymulujący mają zmienne: `Outstate` i `perc.alumni`.
+
+```{r}
+exp(coef(mod))
+```
+
+Interpretacja dla kilku zmiennych:
+
+- wzrost `perc.alumni` o 1 jednostkę (czyli w tym przypadku o 1%) powoduje wzrost szansy na to, że uczelnia jest prywatna, o 4,8%
+
+- wzrost `phD` o 1 jednostkę (w tym przypadku o 1%) powoduje spadek szansy na to, że uczelnia jest prywatna, o 5.85%
+
+Budujemy jak najlepszy model:
+
+```{r}
+mod_null <- glm(Private~1, data = College, family = binomial())
+mod1 <- step(mod, scope = list(upper = mod, lower = mod_null), directon  = "both")
+anova(mod_null, mod1, test = "Chisq")
+anova(mod, mod1, test = "Chisq")
+```
+
+Model `mod1` różni się istotnie od modelu pustego.
+
+Model pełny nie różni się istotnie od modelu `mod1`, więc wybieramy `mod1`.
+
+```{r}
+summary(mod1)
+exp(coef(mod1))
+```
+
+- wzrost `perc.alumni` o 1% powoduje wzrost szansy na to, że uczelnia jest prywatna, o 5.6%
+
+- wzrost `phD` o 1% powoduje spadek szansy na to, że uczelnia jest prywatna, o 5.6%
+
+# Zadanie 2
+
+Skorzystamy z danych `MichelinFood.txt`.
+
+```{r}
+library(rio)
+MichelinFood <- import("MichelinFood.txt")
+head(MichelinFood)
+```
+
+Mamy tu zmienne:
+
+- `Food` - ocena restauracji za jedzenie
+
+- `InMichelin` - liczba restauracji z daną oceną `Food`, które są w katalogu Michelin
+
+- `NotInMichelin` - liczba restauracji z daną oceną `Food`, które nie są w katalogu Michelin
+
+- `mi` - liczba wszystkich restauracji z daną oceną `Food`
+
+- `proportion`- stosunek `InMichelin` do `mi`
+
+Sprawdzimy, jak zmienna `Food` wpływa na szanse na to, że restauracja jest w katalogu Michelin.
+
+```{r}
+mod <- glm(cbind(InMichelin, NotInMichelin)~Food, data = MichelinFood, family = binomial())
+summary(mod)
+```
+
+Null deviance wynosi 61.4, a Residual deviance jest niższe i wynosi 11.4, więc model jest raczej dobrze dopasowany.
+
+`Estimate` dla `Food` jest dodatni, więc jest to zmienna stymulująca.
+
+```{r}
+exp(coef(mod))
+```
+
+Jeżeli `Food` wzrośnie o 1, to szanse na to, że restauracja jest w katalogu Michelin wzrosną o 65%.
+
+# Zadanie 3
+
+Wczytamy dane `MichelinNY.csv`
+
+```{r}
+MichelinNY <- import("MichelinNY.csv")
+head(MichelinNY)
+```
+
+Mamy tu zmienne:
+
+- `InMichelin` - zmienna kodująca, czy restauracja jest w katalogu Michelin (1-tak, 0-nie)
+
+- `Restaurant Name` - nazwa restauracji
+
+- `Food` - ocena za jedzenie
+
+- `Decor` - ocena za wystrój
+
+- `Service` - ocena za obsługę
+
+- `Price` - cena
+
+```{r}
+mod_full <- glm(InMichelin~Food+Decor+Service+Price, data = MichelinNY, family = binomial())
+mod_null <- glm(InMichelin~1, data =MichelinNY, family = binomial())
+mod <- step(mod_full, scope= list(upper = mod_full, lower = mod_null), direction = "both")
+```
+
+```{r}
+summary(mod)
+```
+
+Zmienne `Food` i `Price` są stymulujące. Zmienna `Service` jest na granicy istotności statystycznej, uznamy ją za nieistotną.
+
+```{r}
+exp(coef(mod))
+```
+
+Jeżeli `Food` wzrośnie o 1, to szanse na to, że restauracja jest w katalogu Michelin, wzrosną o 54%.
+
+Jeżeli `Price` wzrośnie o 1, to szanse na to, że restauracja jest w katalogu Michelin, wzrosna o 12%.
+
+Wykonamy predykcję dla restauracji, w której `Food=15`, `Decor=28`, `Service=28`, `Price=33`.
+
+```{r}
+data_pred <- data.frame(Food = 15, Decor = 28, Service = 28, Price = 33)
+predykcja <- predict(mod, newdata = data_pred, type = "response")
+predykcja
+```
+
+Szansa na to, że ta restauracja jest w katalogu Michelin, wynosi 0.2%
+
+Teraz zbudujemy model w oparciu o zbiór uczący i sprawdzimy go na zbiorze testowym. Przyjmiemy, że 70% danych stanowią dane uczące, a 30% testowe.
+
+```{r}
+set.seed(2020)
+id <- sample(nrow(MichelinNY), size = 0.7*nrow(MichelinNY))
+dane_ucz <- MichelinNY[id,]
+dane_test <- MichelinNY[-id,]
+```
+
+```{r}
+mod <- glm(InMichelin~Food+Price+Service,family = binomial(), data = dane_ucz)
+```
+
+```{r}
+pred <- predict(mod, newdata = dane_test, type = "response")
+michelin <- ifelse (pred >0.5, 1, 0)
+tab <- table(obs = dane_test$InMichelin, pre= michelin)
+sum(diag(tab))/sum(tab)
+```
+
+Model ocenił 0 jako 0 i 1 jako 1 w sumie w 46 przypadkach na 50 (w 46 przypadkach na 50 ocenił poprawnie). Miał skuteczność 92%.
